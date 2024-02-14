@@ -1,6 +1,10 @@
 package bguspl.set.ex;
 
+import java.util.Random;
+
 import bguspl.set.Env;
+
+
 
 /**
  * This class manages the players' threads and data
@@ -8,7 +12,11 @@ import bguspl.set.Env;
  * @inv id >= 0
  * @inv score >= 0
  */
+
 public class Player implements Runnable {
+
+    public static final int nullValue = -1;
+    public static final int tokenSize = 3;
 
     /**
      * The game environment object.
@@ -26,6 +34,9 @@ public class Player implements Runnable {
     public final int id;
 
     public int slotPressed;
+
+    private int[] tokens; 
+    
 
     /**
      * The thread representing the current player.
@@ -66,7 +77,11 @@ public class Player implements Runnable {
         this.table = table;
         this.id = id;
         this.human = human;
-        this.slotPressed = -1;
+        this.slotPressed = nullValue;
+        this.tokens = new int[tokenSize];
+        this.tokens[0] = nullValue;
+        this.tokens[1] = nullValue;
+        this.tokens[2] = nullValue;
     }
 
     /**
@@ -81,13 +96,29 @@ public class Player implements Runnable {
         while (!terminate) {
             // TODO implement main player loop
             synchronized(this){
-                while (slotPressed != -1) {
+                while (slotPressed == nullValue) {
                     this.wait();
                 }
-
-
-
-                slotPressed = -1;
+                bool flag = false;
+                for (i=0;i<tokenSize;i++){
+                    if(tokens[i] == slotPressed)
+                        tokens[i] = nullValue;
+                        this.table.removeToken(id, slotPressed);
+                        flag = true;
+                }
+                if(!flag){
+                    for(i=0;i<tokenSize;i++){
+                        if(tokens[i] == nullValue){
+                            tokens[i] = slotPressed;
+                            this.table.placeToken(id, slotPressed);
+                            if(i == 2){
+                                // wake up the dealer
+                            }
+                            break;
+                        }
+                    } 
+                }
+                slotPressed = nullValue;
                 this.notifyAll();
             }
         }
@@ -105,6 +136,9 @@ public class Player implements Runnable {
             env.logger.info("thread " + Thread.currentThread().getName() + " starting.");
             while (!terminate) {
                 // TODO implement player key press simulator
+                Random random = new Random();
+                int randomNumber = random.nextInt(12) + 1;
+                this.keyPressed(randomNumber);
                 try {
                     synchronized (this) { wait(); }
                 } catch (InterruptedException ignored) {}
@@ -130,7 +164,7 @@ public class Player implements Runnable {
         // TODO test
         synchronized(this)
         {
-            while (slotPressed != -1) {
+            while (slotPressed != nullValue) {
                 this.wait();
             }
             slotPressed = slot;
@@ -162,4 +196,15 @@ public class Player implements Runnable {
     public int score() {
         return score;
     }
+
+    public synchronized void clearTokens(int[] slots){
+        for(i=0;i<tokenSize;i++){
+            for(j=0;j<tokenSize;j++){
+                if(slots[i] == tokens[j]){
+                    tokens[j] = nullValue;
+                }
+            }
+        }
+    }
+
 }

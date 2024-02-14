@@ -90,10 +90,9 @@ public class Table {
         try {
             Thread.sleep(env.config.tableDelayMillis);
         } catch (InterruptedException ignored) {}
-
-        cardToSlot[card] = slot;
-        slotToCard[slot] = card;
         synchronized(env){
+            cardToSlot[card] = slot;
+            slotToCard[slot] = card;
             env.ui.placeCard(card, slot);
         }
         // TODO implement
@@ -108,12 +107,12 @@ public class Table {
             Thread.sleep(env.config.tableDelayMillis);
         } catch (InterruptedException ignored) {}
         int card = slotToCard[slot];
-        slotToCard[slot] = null;
-        cardToSlot[card] = null;
         // TODO sync
         synchronized(env){
-        env.ui.removeToken(slot);
-        env.ui.removeCard(slot);
+            slotToCard[slot] = null;
+            cardToSlot[card] = null;
+            env.ui.removeToken(slot);
+            env.ui.removeCard(slot);
         }
         // TODO implement
     }
@@ -124,8 +123,9 @@ public class Table {
      * @param slot   - the slot on which to place the token.
      */
     public void placeToken(int player, int slot) {
-        // TODO sync
-        env.ui.placeToken(player, slot);
+        synchronized(env){
+            env.ui.placeToken(player, slot);
+        }
         // TODO implement
     }
 
@@ -136,8 +136,10 @@ public class Table {
      * @return       - true iff a token was successfully removed.
      */
     public boolean removeToken(int player, int slot) {
-        // TODO sync
-        env.ui.removeToken(player, slot);
+        synchronized(env){
+            env.ui.removeToken(player, slot);
+            return true;
+        }
         // TODO implement
         return false;
     }

@@ -21,6 +21,7 @@ public class Dealer implements Runnable {
      */
     private final Table table;
     private final Player[] players;
+    //public int[] set;
 
     /**
      * The list of card ids that are left in the dealer's deck.
