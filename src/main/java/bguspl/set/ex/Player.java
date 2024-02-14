@@ -25,6 +25,8 @@ public class Player implements Runnable {
      */
     public final int id;
 
+    public int slotPressed;
+
     /**
      * The thread representing the current player.
      */
@@ -64,6 +66,7 @@ public class Player implements Runnable {
         this.table = table;
         this.id = id;
         this.human = human;
+        this.slotPressed = -1;
     }
 
     /**
@@ -77,6 +80,16 @@ public class Player implements Runnable {
 
         while (!terminate) {
             // TODO implement main player loop
+            synchronized(this){
+                while (slotPressed != -1) {
+                    this.wait();
+                }
+
+
+
+                slotPressed = -1;
+                this.notifyAll();
+            }
         }
         if (!human) try { aiThread.join(); } catch (InterruptedException ignored) {}
         env.logger.info("thread " + Thread.currentThread().getName() + " terminated.");
@@ -114,10 +127,14 @@ public class Player implements Runnable {
      * @param slot - the slot corresponding to the key pressed.
      */
     public void keyPressed(int slot) {
-        // TODO implement
+        // TODO test
         synchronized(this)
         {
-            notifyAll();
+            while (slotPressed != -1) {
+                this.wait();
+            }
+            slotPressed = slot;
+            this.notifyAll();
         }
     }
 
