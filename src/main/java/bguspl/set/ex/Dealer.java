@@ -27,7 +27,7 @@ public class Dealer implements Runnable {
      * The list of card ids that are left in the dealer's deck.
      */
     private final List<Integer> deck;
-
+    
     /**
      * True iff game should be terminated.
      */
@@ -95,7 +95,40 @@ public class Dealer implements Runnable {
      */
     private void removeCardsFromTable() {
         
-        // TODO implement
+        if(table.playerUpdate != -1)
+        {
+            synchronized(table){
+            int card1 = table.slotToCard[players[table.playerUpdate].tokens[0]];
+            int card2 = table.slotToCard[players[table.playerUpdate].tokens[1]];
+            int card3 = table.slotToCard[players[table.playerUpdate].tokens[2]];
+            boolean chack = false;
+            //chack
+            if(!chack)
+            {
+                players[table.playerUpdate].penalty();
+            }
+            else{
+                players[table.playerUpdate].point();
+                for (int i =0;i<players.length;i++)
+                {
+                    for(int j=0;j<3;j++)
+                    {
+                        if(players[i].tokens[j] == table.cardToSlot[card1]||players[i].tokens[j] == table.cardToSlot[card2]||players[i].tokens[j] == table.cardToSlot[card3])
+                        {
+                            players[i].tokens[j] = -1;
+                            table.removeToken(i,players[i].tokens[j]);
+                        }
+                        
+                    }
+                }
+                table.removeCard(table.cardToSlot[card1]);
+                table.removeCard(table.cardToSlot[card2]);
+                table.removeCard(table.cardToSlot[card3]);
+            }
+            table.playerUpdate = -1;
+            notifyAll();
+        }
+        }
     }
 
     /**
@@ -122,7 +155,10 @@ public class Dealer implements Runnable {
      * Sleep for a fixed amount of time or until the thread is awakened for some purpose.
      */
     private void sleepUntilWokenOrTimeout() {
-        // TODO implement
+        synchronized(table)
+        {
+            wait(1000);
+        }
     }
 
     /**
@@ -173,4 +209,7 @@ public class Dealer implements Runnable {
         } catch (InterruptedException ignored) {}
         // TODO test
     }
+
+    
 }
+

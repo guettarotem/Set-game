@@ -35,7 +35,7 @@ public class Player implements Runnable {
 
     public int slotPressed;
 
-    private int[] tokens; 
+    public int[] tokens; 
     
 
     /**
@@ -112,7 +112,7 @@ public class Player implements Runnable {
                             tokens[i] = slotPressed;
                             this.table.placeToken(id, slotPressed);
                             if(i == 2){
-                                // wake up the dealer
+                                table.playerUpdate(id);
                             }
                             break;
                         }

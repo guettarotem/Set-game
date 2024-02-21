@@ -29,6 +29,7 @@ public class Table {
      */
     protected final Integer[] cardToSlot; // slot per card (if any)
 
+    public int playerUpdate;
     /**
      * Constructor for testing.
      *
@@ -95,7 +96,7 @@ public class Table {
             slotToCard[slot] = card;
             env.ui.placeCard(card, slot);
         }
-        // TODO implement
+        // TODO test
     }
 
     /**
@@ -114,7 +115,7 @@ public class Table {
             env.ui.removeToken(slot);
             env.ui.removeCard(slot);
         }
-        // TODO implement
+        // TODO test
     }
 
     /**
@@ -126,7 +127,7 @@ public class Table {
         synchronized(env){
             env.ui.placeToken(player, slot);
         }
-        // TODO implement
+        // TODO test
     }
 
     /**
@@ -140,10 +141,21 @@ public class Table {
             env.ui.removeToken(player, slot);
             return true;
         }
-        // TODO implement
+        // TODO test
         return false;
     }
 
-
+    public wakeUpByPlayer(int id)
+    {
+        synchronized(this){
+            while (playerUpdate != -1) {
+                wait();
+            }
+            playerUpdate = id;
+            notifyAll();
+        }
+        
+        
+    }
 
 }
