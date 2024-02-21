@@ -101,9 +101,7 @@ public class Dealer implements Runnable {
             int card1 = table.slotToCard[players[table.playerUpdate].tokens[0]];
             int card2 = table.slotToCard[players[table.playerUpdate].tokens[1]];
             int card3 = table.slotToCard[players[table.playerUpdate].tokens[2]];
-            boolean chack = false;
-            //chack
-            if(!chack)
+            if(!Check(card1,card2,card3))
             {
                 players[table.playerUpdate].penalty();
             }
@@ -210,6 +208,17 @@ public class Dealer implements Runnable {
         // TODO test
     }
 
+    private boolean Check(int card1, int card2, int card3){
+        while (card1>0 || card2 > 0 || card3 >0) {
+            if(!((card1%3 == card2%3 && card2%3 == card3%3)||(card1%3 != card2%3 && card2%3 != card3%3&& card1%3 != card3%3))){
+                return false;
+            }
+            card1 = card1 /3;
+            card2 = card2 /3;
+            card3 = card3 /3;
+        }
+        return true;
+    }
     
 }
 
