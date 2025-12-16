@@ -1,9 +1,13 @@
 package bguspl.set.ex;
 
-import java.util.Random;
-
 import bguspl.set.Env;
 
+import java.util.LinkedList;
+import java.util.Objects;
+import java.util.Queue;
+import java.util.Random;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 
 /**
@@ -12,11 +16,11 @@ import bguspl.set.Env;
  * @inv id >= 0
  * @inv score >= 0
  */
-
 public class Player implements Runnable {
 
     public static final int nullValue = -1;
     public static final int tokenSize = 3;
+
 
     /**
      * The game environment object.
@@ -27,6 +31,7 @@ public class Player implements Runnable {
      * Game entities.
      */
     private final Table table;
+    private final Dealer dealer;
 
     /**
      * The id of the player (starting from 0).
@@ -35,8 +40,11 @@ public class Player implements Runnable {
 
     public int slotPressed;
 
-    public int[] tokens; 
-    
+
+    public long endFreezeTime;
+
+    public int[] tokens;
+    //private Queue<Integer> actions;
 
     /**
      * The thread representing the current player.
@@ -58,6 +66,8 @@ public class Player implements Runnable {
      */
     private volatile boolean terminate;
 
+    protected final Object playerLock;
+
     /**
      * The current score of the player.
      */
@@ -74,14 +84,18 @@ public class Player implements Runnable {
      */
     public Player(Env env, Dealer dealer, Table table, int id, boolean human) {
         this.env = env;
+        this.dealer = dealer;
         this.table = table;
         this.id = id;
         this.human = human;
+        this.playerLock = new Object();
+        this.score = 0;
         this.slotPressed = nullValue;
         this.tokens = new int[tokenSize];
         this.tokens[0] = nullValue;
         this.tokens[1] = nullValue;
         this.tokens[2] = nullValue;
+
     }
 
     /**
@@ -92,34 +106,45 @@ public class Player implements Runnable {
         playerThread = Thread.currentThread();
         env.logger.info("thread " + Thread.currentThread().getName() + " starting.");
         if (!human) createArtificialIntelligence();
-
         while (!terminate) {
-            // TODO implement main player loop
             synchronized(this){
                 while (slotPressed == nullValue) {
-                    this.wait();
-                }
-                bool flag = false;
-                for (i=0;i<tokenSize;i++){
-                    if(tokens[i] == slotPressed)
-                        tokens[i] = nullValue;
-                        this.table.removeToken(id, slotPressed);
-                        flag = true;
-                }
-                if(!flag){
-                    for(i=0;i<tokenSize;i++){
-                        if(tokens[i] == nullValue){
-                            tokens[i] = slotPressed;
-                            this.table.placeToken(id, slotPressed);
-                            if(i == 2){
-                                table.playerUpdate(id);
-                            }
-                            break;
+                    try {
+                        this.wait();
+
+                    } catch (InterruptedException ignored) {}
+                    try{
+                        if (System.currentTimeMillis() < endFreezeTime || table.slotToCard[slotPressed] == null) {
+                            slotPressed = nullValue;
+                            this.notifyAll();
                         }
-                    } 
+                    } catch (ArrayIndexOutOfBoundsException ignored){}
                 }
-                slotPressed = nullValue;
-                this.notifyAll();
+                boolean flag = false;
+                    for (int i = 0; i < tokenSize; i++) {
+                        if (tokens[i] == slotPressed) {
+                            tokens[i] = nullValue;
+                            this.table.removeToken(id, slotPressed);
+                            flag = true;
+                        }
+                    }
+                    if (!flag) {
+                        for (int i = 0; i < tokenSize; i++) {
+                            if (tokens[i] == nullValue) {
+                                tokens[i] = slotPressed;
+                                this.table.placeToken(id, slotPressed);
+                                break;
+                            }
+                        }
+                        if (tokens[1] != nullValue && tokens[2] != nullValue && tokens[0] != nullValue) {
+                            table.playerUpdateQ.add(id);
+                            synchronized (dealer.DealerLock){
+                                dealer.DealerLock.notify();
+                            }
+                        }
+                    }
+                    slotPressed = nullValue;
+                    this.notifyAll();
             }
         }
         if (!human) try { aiThread.join(); } catch (InterruptedException ignored) {}
@@ -131,17 +156,18 @@ public class Player implements Runnable {
      * key presses. If the queue of key presses is full, the thread waits until it is not full.
      */
     private void createArtificialIntelligence() {
-        // note: this is a very, very smart AI (!)
         aiThread = new Thread(() -> {
             env.logger.info("thread " + Thread.currentThread().getName() + " starting.");
+            Random random = new Random();
             while (!terminate) {
-                // TODO implement player key press simulator
-                Random random = new Random();
-                int randomNumber = random.nextInt(12) + 1;
-                this.keyPressed(randomNumber);
+                int randomSlot = random.nextInt(env.config.tableSize);
+                if (table.slotToCard[randomSlot] != null){
+                    this.keyPressed(randomSlot);
+                }
                 try {
-                    synchronized (this) { wait(); }
+                        Thread.sleep(2);
                 } catch (InterruptedException ignored) {}
+
             }
             env.logger.info("thread " + Thread.currentThread().getName() + " terminated.");
         }, "computer-" + id);
@@ -152,7 +178,9 @@ public class Player implements Runnable {
      * Called when the game should be terminated.
      */
     public void terminate() {
-        // TODO implement
+        terminate = true;
+        if (!human)
+            aiThread.interrupt();
     }
 
     /**
@@ -161,14 +189,18 @@ public class Player implements Runnable {
      * @param slot - the slot corresponding to the key pressed.
      */
     public void keyPressed(int slot) {
-        // TODO test
         synchronized(this)
         {
+            try {
             while (slotPressed != nullValue) {
                 this.wait();
             }
-            slotPressed = slot;
+            if(table.slotToCard[slot] != null) {
+                slotPressed = slot;
+            }
             this.notifyAll();
+            } catch (InterruptedException ignored) {
+            }
         }
     }
 
@@ -179,32 +211,44 @@ public class Player implements Runnable {
      * @post - the player's score is updated in the ui.
      */
     public void point() {
-        synchronized(this){
-
         int ignored = table.countCards(); // this part is just for demonstration in the unit tests
         env.ui.setScore(id, ++score);
-    }}
+        endFreezeTime = System.currentTimeMillis()+env.config.pointFreezeMillis;
+    }
 
     /**
      * Penalize a player and perform other related actions.
      */
-    public void penalty() {
-        // TODO implement
-        playerThread.sleep(env.config.penaltyFreezeMillis);
+    public synchronized void penalty() {
+        endFreezeTime = System.currentTimeMillis()+env.config.penaltyFreezeMillis;
+        for(int token=0 ; token<tokenSize;token++){
+            if(tokens[token]!=nullValue) {
+                table.removeToken(id, tokens[token]);
+            }
+            tokens[token] = nullValue;
+        }
     }
 
     public int score() {
         return score;
     }
 
-    public synchronized void clearTokens(int[] slots){
-        for(i=0;i<tokenSize;i++){
-            for(j=0;j<tokenSize;j++){
-                if(slots[i] == tokens[j]){
-                    tokens[j] = nullValue;
-                }
+    public synchronized void clearTokens(){
+        for(int i=0;i<tokenSize;i++){
+            if(tokens[i] != nullValue) {
+                table.removeToken(id, tokens[i]);
+                tokens[i] = nullValue;
             }
         }
     }
 
+    public synchronized void removeToken(int[] slots){
+        for (int i = 0; i < 3; i++) {
+            if (tokens[i] == slots[0] || tokens[i] == slots[1] || tokens[i] == slots[2]) {
+                table.removeToken(id, tokens[i]);
+                tokens[i] = -1;
+                table.removePlayer(id);
+            }
+        }
+    }
 }
