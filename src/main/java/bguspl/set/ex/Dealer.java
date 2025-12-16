@@ -1,7 +1,7 @@
 package bguspl.set.ex;
 
 import bguspl.set.Env;
-
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -21,13 +21,12 @@ public class Dealer implements Runnable {
      */
     private final Table table;
     private final Player[] players;
-    //public int[] set;
 
     /**
      * The list of card ids that are left in the dealer's deck.
      */
     private final List<Integer> deck;
-    
+
     /**
      * True iff game should be terminated.
      */
@@ -37,12 +36,21 @@ public class Dealer implements Runnable {
      * The time when the dealer needs to reshuffle the deck due to turn timeout.
      */
     private long reshuffleTime = Long.MAX_VALUE;
+    private int timer;
+    //public int playerUpdate; // A
+    public final Object DealerLock = new Object(); // B
+
+    private final List<Integer> shuffeledSlots;
+
 
     public Dealer(Env env, Table table, Player[] players) {
         this.env = env;
         this.table = table;
         this.players = players;
         deck = IntStream.range(0, env.config.deckSize).boxed().collect(Collectors.toList());
+        shuffeledSlots = IntStream.range(0, env.config.tableSize).boxed().collect(Collectors.toList());
+        terminate = false;
+        Collections.shuffle(deck);
     }
 
     /**
@@ -51,7 +59,12 @@ public class Dealer implements Runnable {
     @Override
     public void run() {
         env.logger.info("thread " + Thread.currentThread().getName() + " starting.");
+        for (Player player : players) {
+            Thread playerThread = new Thread(player);
+            playerThread.start();
+        }
         while (!shouldFinish()) {
+            reshuffleTime = System.currentTimeMillis() + env.config.turnTimeoutMillis;
             placeCardsOnTable();
             timerLoop();
             updateTimerDisplay(false);
@@ -77,8 +90,10 @@ public class Dealer implements Runnable {
      * Called when the game should be terminated.
      */
     public void terminate() {
+        for (Player player : players)
+            player.terminate();
+        env.ui.dispose();
         terminate = true;
-        // TODO implement
     }
 
     /**
@@ -87,45 +102,53 @@ public class Dealer implements Runnable {
      * @return true iff the game should be finished.
      */
     private boolean shouldFinish() {
-        return terminate || env.util.findSets(deck, 1).size() == 0;
+        if (terminate || env.util.findSets(deck, 1).isEmpty()) {
+            return true;
+        }
+        return false;
+
     }
 
     /**
      * Checks cards should be removed from the table and removes them.
      */
     private void removeCardsFromTable() {
-        
-        if(table.playerUpdate != -1)
+        while (!table.playerUpdateQ.isEmpty())  // A
         {
-            synchronized(table){
-            int card1 = table.slotToCard[players[table.playerUpdate].tokens[0]];
-            int card2 = table.slotToCard[players[table.playerUpdate].tokens[1]];
-            int card3 = table.slotToCard[players[table.playerUpdate].tokens[2]];
-            if(!Check(card1,card2,card3))
-            {
-                players[table.playerUpdate].penalty();
+            Integer player = table.playerUpdateQ.remove(0);
+            if (player == null) {
+                continue;
             }
-            else{
-                players[table.playerUpdate].point();
-                for (int i =0;i<players.length;i++)
-                {
-                    for(int j=0;j<3;j++)
-                    {
-                        if(players[i].tokens[j] == table.cardToSlot[card1]||players[i].tokens[j] == table.cardToSlot[card2]||players[i].tokens[j] == table.cardToSlot[card3])
-                        {
-                            players[i].tokens[j] = -1;
-                            table.removeToken(i,players[i].tokens[j]);
-                        }
-                        
+            synchronized (players[player].playerLock) {
+                int[] cards = new int[3];
+                if (players[player].tokens[0] == -1 || players[player].tokens[1] == -1 || players[player].tokens[2] == -1) {
+                    continue;
+                }
+                if (table.slotToCard[players[player].tokens[0]] == null || table.slotToCard[players[player].tokens[1]] == null || table.slotToCard[players[player].tokens[2]] == null) {
+                    continue;
+                } else {
+                    for (int i = 0; i < cards.length; i++) {
+                        cards[i] = table.slotToCard[players[player].tokens[i]];
                     }
                 }
-                table.removeCard(table.cardToSlot[card1]);
-                table.removeCard(table.cardToSlot[card2]);
-                table.removeCard(table.cardToSlot[card3]);
+                if (!env.util.testSet(cards)) {
+                    players[player].penalty();
+                } else {
+                    players[player].point();
+                    int[] slots = new int[3];
+                    for (int i = 0; i < slots.length; i++) {
+                        slots[i] = table.cardToSlot[cards[i]];
+                    }
+                    for (Player value : players) {
+                        value.removeToken(slots);
+                    }
+                    for (int slot : slots) {
+                        env.ui.removeTokens(slot);
+                        table.removeCard(slot);
+                    }
+                }
+                players[player].playerLock.notify();
             }
-            table.playerUpdate = -1;
-            notifyAll();
-        }
         }
     }
 
@@ -133,92 +156,90 @@ public class Dealer implements Runnable {
      * Check if any cards can be removed from the deck and placed on the table.
      */
     private void placeCardsOnTable() {
-        // TODO sync??
-        if(!deck.isEmpty())
-        {
-            for(i = 0; i < table.slotToCard.length;i++)
-            {
-                if(table.slotToCard[i] == null)
-                {
-                    int card = deck.getFirst();
-                    deck.removeFirst();
-                    table.placeCard(card, i);
+        if (!deck.isEmpty()) {
+            Collections.shuffle(shuffeledSlots);
+            for (int i = 0; i < env.config.tableSize; i++) {
+                if (deck.isEmpty()) {
+                    break;
                 }
+                int slot = shuffeledSlots.remove(0);
+                if (table.slotToCard[slot] == null) {
+                    int card = deck.remove(0);
+                    table.placeCard(card, slot);
+                    updateTimerDisplay(true);
+                }
+                shuffeledSlots.add(slot);
             }
         }
-        // TODO test
     }
 
     /**
      * Sleep for a fixed amount of time or until the thread is awakened for some purpose.
      */
     private void sleepUntilWokenOrTimeout() {
-        synchronized(table)
-        {
-            wait(1000);
+        try {
+            synchronized (DealerLock) {
+                DealerLock.wait(900);
+            }
+        } catch (InterruptedException ignored) {
         }
     }
 
     /**
      * Reset and/or update the countdown and the countdown display.
      */
-    private void updateTimerDisplay(boolean reset) {
-        // TODO SYNC???
-        env.ui.setCountdown(env.config.turnTimeoutMillis, reset);
-        // TODO test
+    private void updateTimerDisplay(boolean reset) { // ADD
+        if (!terminate && reset) {
+            reshuffleTime = System.currentTimeMillis() + env.config.turnTimeoutMillis;
+            env.ui.setCountdown(reshuffleTime - System.currentTimeMillis(), false);
+        } else {
+            boolean warm = (reshuffleTime - System.currentTimeMillis()) <= 5100;
+            env.ui.setCountdown(reshuffleTime - System.currentTimeMillis(), warm);
+        }
+
     }
 
     /**
      * Returns all the cards from the table to the deck.
      */
     private void removeAllCardsFromTable() {
-        // TODO sync
-        for(int i = 0;i < env.config.tableSize;i++)
-        {
-            table.removeCard(i);
+        env.ui.setCountdown(env.config.turnTimeoutMillis, false);
+        Collections.shuffle(shuffeledSlots);
+        for (Player p : players) {
+            p.clearTokens();
         }
-        // TODO test
+        for (int i = 0; i < env.config.tableSize; i++) {
+            int slot = shuffeledSlots.remove(0);
+            if (table.slotToCard[slot] != null) {
+                deck.add(table.slotToCard[slot]);
+                table.removeCard(slot);
+            }
+            shuffeledSlots.add(slot);
+        }
+        Collections.shuffle(deck);
     }
 
     /**
      * Check who is/are the winner/s and displays them.
      */
     private void announceWinners() {
-        int maxScore = 0,winers = 0,j = 0;
-        for (int i = 0;i<players.length;i++){
-            if(players[i].score()>maxScore)
-            {
-                maxScore = players[i].score();
+        int maxScore = 0, winers = 0, j = 0;
+        for (Player player : players) {
+            if (player.score() > maxScore) {
+                maxScore = player.score();
                 winers = 1;
-            }
-            else if(players[i].score() == maxScore)winers++;
+            } else if (player.score() == maxScore) winers++;
         }
-        int[] winerId = new int[winers];
-        for(int i = 0;i<players.length;i++)
-        {
-            if(players[i].score() == maxScore)
-            {
-                winerId[j++] = players[i].id;
+        int[] winnerId = new int[winers];
+        for (Player player : players) {
+            if (player.score() == maxScore) {
+                winnerId[j++] = player.id;
             }
         }
-        env.ui.announceWinner(winerId);
+        env.ui.announceWinner(winnerId);
         try {
             Thread.sleep(env.config.endGamePauseMillies);
-        } catch (InterruptedException ignored) {}
-        // TODO test
-    }
-
-    private boolean Check(int card1, int card2, int card3){
-        while (card1>0 || card2 > 0 || card3 >0) {
-            if(!((card1%3 == card2%3 && card2%3 == card3%3)||(card1%3 != card2%3 && card2%3 != card3%3&& card1%3 != card3%3))){
-                return false;
-            }
-            card1 = card1 /3;
-            card2 = card2 /3;
-            card3 = card3 /3;
+        } catch (InterruptedException ignored) {
         }
-        return true;
     }
-    
 }
-
