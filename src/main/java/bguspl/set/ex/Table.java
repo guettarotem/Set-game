@@ -2,9 +2,7 @@ package bguspl.set.ex;
 
 import bguspl.set.Env;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -29,7 +27,10 @@ public class Table {
      */
     protected final Integer[] cardToSlot; // slot per card (if any)
 
-    public int playerUpdate;
+    protected List<Integer> playerUpdateQ; // B
+    protected final Object[] slotLocks;
+
+
     /**
      * Constructor for testing.
      *
@@ -42,6 +43,11 @@ public class Table {
         this.env = env;
         this.slotToCard = slotToCard;
         this.cardToSlot = cardToSlot;
+        this.playerUpdateQ = new ArrayList<Integer>();
+        this.slotLocks = new Object[12];
+        for (int i=0; i<slotLocks.length; i++){
+            slotLocks[i] = new Object();
+        }
     }
 
     /**
@@ -91,12 +97,9 @@ public class Table {
         try {
             Thread.sleep(env.config.tableDelayMillis);
         } catch (InterruptedException ignored) {}
-        synchronized(env){
             cardToSlot[card] = slot;
             slotToCard[slot] = card;
             env.ui.placeCard(card, slot);
-        }
-        // TODO test
     }
 
     /**
@@ -107,15 +110,15 @@ public class Table {
         try {
             Thread.sleep(env.config.tableDelayMillis);
         } catch (InterruptedException ignored) {}
-        int card = slotToCard[slot];
-        // TODO sync
-        synchronized(env){
-            slotToCard[slot] = null;
-            cardToSlot[card] = null;
-            env.ui.removeToken(slot);
+            int card = slotToCard[slot];
+            if( cardToSlot[card] != null){
+                cardToSlot[card] = null;
+            }
+            if(slotToCard[slot] != null) {
+                slotToCard[slot] = null;
+            }
+            env.ui.removeTokens(slot);
             env.ui.removeCard(slot);
-        }
-        // TODO test
     }
 
     /**
@@ -124,38 +127,28 @@ public class Table {
      * @param slot   - the slot on which to place the token.
      */
     public void placeToken(int player, int slot) {
-        synchronized(env){
             env.ui.placeToken(player, slot);
-        }
-        // TODO test
     }
 
     /**
      * Removes a token of a player from a grid slot.
+     *
      * @param player - the player the token belongs to.
      * @param slot   - the slot from which to remove the token.
-     * @return       - true iff a token was successfully removed.
      */
     public boolean removeToken(int player, int slot) {
-        synchronized(env){
-            env.ui.removeToken(player, slot);
-            return true;
-        }
-        // TODO test
-        return false;
+        boolean ret = false;
+        env.ui.removeToken(player, slot);
+        ret= true;
+        return ret;
     }
 
-    public wakeUpByPlayer(int id)
-    {
-        synchronized(this){
-            while (playerUpdate != -1) {
-                wait();
+    public void removePlayer(int id) {
+            for (int i = 0; i < playerUpdateQ.size(); i++) {
+                int player = playerUpdateQ.remove(0);
+                if (player != id) {
+                    playerUpdateQ.add(player);
+                }
             }
-            playerUpdate = id;
-            notifyAll();
-        }
-        
-        
     }
-
 }
